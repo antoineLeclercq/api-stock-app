@@ -1,17 +1,45 @@
 require 'json'
 require 'faraday'
 
-def calculate_value(symbol, quantity)
-  url = 'http://dev.markitondemand.com/MODApis/Api/v2/Quote/json'
+class SymbolNotFound < StandardError; end
+class RequestFailed < StandardError; end
 
-  http_client = Faraday.new
+class MarkitClient
+  attr_reader :http_client
 
-  response = http_client.get(url, symbol: symbol)
-  data = JSON.load(response.body)
+  def initialize(http_client=Faraday.new)
+    @http_client = http_client
+  end
 
-  price = data['LastPrice']
-  price.to_f * quantity.to_i
+  def last_price(stock_symbol)
+    url = 'http://dev.markitondemand.com/MODApis/Api/v2/Quote/json'
+    data = make_request(url, symbol: stock_symbol)
+    price = data['LastPrice']
+
+    raise SymbolNotFound.new(data['Message']) unless price
+
+    price
+  end
+
+  private
+
+  def make_request(url, params={})
+    begin
+      response = http_client.get(url, params)
+      JSON.load(response.body)
+    rescue Faraday::Error::ConnectionFailed => e
+      raise RequestFailed.new(e.message)
+    end
+  end
 end
 
-symbol, quantity = ARGV
-puts calculate_value(symbol, quantity) if $0 == __FILE__
+def calculate_value(symbol, quantity)
+  markit_client = MarkitClient.new
+  price = markit_client.last_price(symbol)
+  price * quantity.to_i
+end
+
+if $0 == __FILE__
+  symbol, quantity = ARGV
+  puts calculate_value(symbol, quantity)
+end
